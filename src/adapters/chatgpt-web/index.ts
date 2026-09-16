@@ -1096,11 +1096,13 @@ export function createChatGptWebAdapter(
               console.error("[chatgpt-web] structured context handoff failed:", handoffError);
               emit({
                 type: "error",
-                message: "ChatGPT did not complete the context handoff. Retry the task.",
-                status: 409,
-                errorType: "invalid_request_error",
-                code: "compaction_handoff_failed",
-                retryable: false,
+                message: handoffError instanceof ChatGptWebAdapterError
+                  ? `ChatGPT context handoff failed: ${handoffError.message}`
+                  : "ChatGPT did not complete the context handoff. Retry the task.",
+                status: handoffError instanceof ChatGptWebAdapterError ? handoffError.status : 409,
+                errorType: handoffError instanceof ChatGptWebAdapterError ? handoffError.errorType : "invalid_request_error",
+                code: handoffError instanceof ChatGptWebAdapterError ? handoffError.code : "compaction_handoff_failed",
+                retryable: handoffError instanceof ChatGptWebAdapterError ? handoffError.retryable : false,
               });
               return;
             }

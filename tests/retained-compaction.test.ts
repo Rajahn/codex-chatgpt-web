@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserTurn } from "../src/adapters/chatgpt-web/browser-worker";
 import { ChatGptBrowserWorker } from "../src/adapters/chatgpt-web/browser-worker";
-import { ChatGptCompactionHandoffAccepted, chatGptRetainedConversationUnavailableError } from "../src/adapters/chatgpt-web/adapter-error";
+import { ChatGptWebAdapterError, ChatGptCompactionHandoffAccepted, chatGptRetainedConversationUnavailableError } from "../src/adapters/chatgpt-web/adapter-error";
 import {
   MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
   cancelAllStructuredCompactions,
@@ -1561,15 +1561,45 @@ test("a disappeared retained source cannot leave its fresh compaction rebuild pa
     expect(browserStarts).toBe(2);
     expect(events.at(-1)).toMatchObject({
       type: "error",
-      code: "compaction_handoff_failed",
+      code: "compaction_handoff_timeout",
       retryable: false,
-      message: "ChatGPT did not complete the context handoff. Retry the task.",
+      message: "ChatGPT context handoff failed: ChatGPT compaction did not fully settle within 25ms",
     });
   } finally {
     releaseBrowser?.();
     await cancelStructuredCompactionTrace(fallbackTrace, new Error("test cleanup"));
     (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     chatGptTurnSessions.clear();
+    await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+test("compaction preserves classified upstream errors instead of disguising them as handoff failures", async () => {
+  const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-compact-upstream-error-"));
+  const provider: CodexProviderConfig = {
+    adapter: "chatgpt-web", baseUrl: `browser://upstream-error-${Date.now()}`,
+    chatgptWeb: { browserHost: "launcher", browserHostDescriptorPath: join(root, "launcher.json"),
+      brokerSocketPath: defaultBrokerEndpoint(root), localToolsEnabled: true,
+      solAvailable: true, extraHighAvailable: true, proAvailable: true, compactionReasoning: "xhigh" },
+  };
+  const worker = ChatGptBrowserWorker.forProvider(provider);
+  const originalRun = worker.run.bind(worker);
+  (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async () => {
+    throw new ChatGptWebAdapterError("Synthetic upstream failure", {
+      status: 502, errorType: "server_error", code: "upstream_server_error", retryable: true,
+    });
+  };
+  const events: AdapterEvent[] = [];
+  try {
+    await createChatGptWebAdapter(provider).runTurn!(request(true), { headers: new Headers() }, event => events.push(event));
+    expect(events.find(event => event.type === "error")).toMatchObject({
+      message: "ChatGPT context handoff failed: Synthetic upstream failure",
+      status: 502, code: "upstream_server_error", retryable: true,
+    });
+  } finally {
+    (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = originalRun;
     await TurnBroker.forSocket(provider.chatgptWeb!.brokerSocketPath!).close();
     rmSync(root, { recursive: true, force: true });
   }
