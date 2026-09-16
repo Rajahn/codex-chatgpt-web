@@ -83,6 +83,8 @@ export interface AppConfig {
   headed: boolean;
   solAvailable: boolean;
   extraHighAvailable?: boolean;
+  /** Explicit automatic-compaction effort; omitted means follow the task. */
+  compactionReasoning?: "low" | "medium" | "high" | "xhigh" | "max";
   proAvailable: boolean;
   experimentalBiggerContext: boolean;
   /** Explicitly install the additional Pro-sized model row while Zero Risk is active. */
@@ -482,6 +484,11 @@ function parseConfig(value: unknown, path: string): AppConfig {
     throw new Error(`Invalid runtimeCommand in ${path}`);
   }
   assertDurableRuntimeCommand(parsed.runtimeCommand as string[]);
+  if (parsed.compactionReasoning !== undefined
+    && (typeof parsed.compactionReasoning !== "string"
+      || !["low", "medium", "high", "xhigh", "max"].includes(parsed.compactionReasoning))) {
+    throw new Error(`Invalid compactionReasoning in ${path}`);
+  }
   if (parsed.extraHighAvailable !== undefined && typeof parsed.extraHighAvailable !== "boolean") {
     throw new Error(`Invalid extraHighAvailable in ${path}`);
   }
@@ -578,6 +585,8 @@ export function providerConfig(config: AppConfig): CodexProviderConfig {
       localToolsEnabled: config.mode === "full",
       solAvailable: manual ? false : config.solAvailable,
       extraHighAvailable: !manual && config.extraHighAvailable === true,
+      ...(!manual && config.compactionReasoning !== undefined
+        ? { compactionReasoning: config.compactionReasoning } : {}),
       proAvailable: manual ? false : config.proAvailable,
       experimentalBiggerContext: manual ? false : config.experimentalBiggerContext,
       ...(config.stallTimeoutSec !== undefined ? { stallTimeoutSec: config.stallTimeoutSec } : {}),

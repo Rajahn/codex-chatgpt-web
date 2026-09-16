@@ -200,3 +200,14 @@ bun run app:package
 [Troubleshooting](TROUBLESHOOTING.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE) · [CI](https://github.com/miuuyy/codex-chatgpt-web/actions/workflows/ci.yml)
 
 Also by me: <img src="assets/readme/persona-voice.svg" width="20" height="20" alt=""> [ChatGPT Persona Voice](https://github.com/miuuyy/ChatGPT-Persona-Voice) — local, near-real-time custom voices for ChatGPT and Codex.
+
+### Independent automatic-compaction effort
+
+Set `"compactionReasoning": "xhigh"` in the bridge config to use Extra High for
+Sol context summaries while ordinary turns keep their selected effort (including
+Pro). Supported values are `low`, `medium`, `high`, `xhigh`, and `max`; omitting
+this setting preserves the task effort. Account availability is checked and an
+unavailable effort fails explicitly. This applies to retained-conversation
+handoffs and fresh-history fallbacks, not Zero Risk or Luna rolling checkpoints.
+The retained summary phase receives its own bounded timeout after the source
+turn has settled; this does not guarantee completion of arbitrarily slow turns.

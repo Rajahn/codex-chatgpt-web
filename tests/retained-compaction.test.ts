@@ -1014,12 +1014,14 @@ test("retained compaction can close its browser epoch while preserving an ordina
   sessions.clear();
 });
 
-test("adapter compact returns one same-agent handoff and preserves a pre-existing ordinary final", async () => {
+test.each([undefined, "xhigh"] as const)("retained compaction preserves source identity and has an independent summary budget (effort=%s)", async effort => {
   const root = mkdtempSync(join(shortSocketTempRoot(), "cgw-adapter-retained-compact-"));
   const provider: CodexProviderConfig = {
     adapter: "chatgpt-web",
     baseUrl: `browser://retained-compact-${Date.now()}`,
     chatgptWeb: {
+      compactionReasoning: effort,
+      turnTimeoutMs: effort ? 700 : undefined,
       browserHost: "launcher",
       browserHostDescriptorPath: join(root, "launcher.json"),
       brokerSocketPath: defaultBrokerEndpoint(root),
@@ -1033,13 +1035,14 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
   const worker = ChatGptBrowserWorker.forProvider(provider);
   const originalRun = worker.run.bind(worker);
   const sourceRequest = request(false);
+  sourceRequest.options.reasoning = "max";
   const namespace = chatGptWebExecutionNamespace(provider);
   const sourceKey = `${namespace}:${chatGptTurnExecutionKey(sourceRequest)}`;
   const conversationKey = chatGptConversationKey(sourceRequest, namespace)!;
   let releases = 0;
   chatGptTurnSessions.getOrCreate(sourceKey, () => ({
     mode: "read-only",
-    browser: Promise.resolve("source complete"),
+    browser: effort ? new Promise(resolve => setTimeout(() => resolve("source complete"), 450)) : Promise.resolve("source complete"),
     physicalSettlement: Promise.resolve(),
     trace: new ChatGptTraceFeed(),
     text: new ChatGptTextFeed(),
@@ -1048,9 +1051,13 @@ test("adapter compact returns one same-agent handoff and preserves a pre-existin
     releaseRetainedConversation: async () => { releases += 1; },
     cancel() {},
   }));
-  await chatGptTurnSessions.find(sourceKey)!.browserOutcome;
+  if (!effort) await chatGptTurnSessions.find(sourceKey)!.browserOutcome;
 
   (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
+    expect(turn.reasoning).toBe(effort ?? "max");
+    expect(turn.conversationKey).toBe(conversationKey);
+    if (effort) await new Promise(resolve => setTimeout(resolve, 450));
+    expect(turn.abortSignal?.aborted).toBeFalse();
     const prepared = await turn.prepareResume!();
     const binding = controlBinding(prepared.text);
     expect(turn.nativeConnector).toBeTrue();
@@ -1212,6 +1219,7 @@ test.each([false, true])("structured compact rebuilds canonical context when its
     adapter: "chatgpt-web",
     baseUrl: `browser://missing-retained-${Date.now()}`,
     chatgptWeb: {
+      compactionReasoning: "xhigh",
       experimentalBiggerContext,
       browserHost: "launcher",
       browserHostDescriptorPath: join(root, "launcher.json"),
@@ -1226,6 +1234,7 @@ test.each([false, true])("structured compact rebuilds canonical context when its
   let browserStarts = 0;
   (worker as unknown as { run: (turn: BrowserTurn) => Promise<string> }).run = async turn => {
     browserStarts += 1;
+    expect(turn.reasoning).toBe("xhigh");
     expect(turn.requireRetainedConversation).toBeUndefined();
     expect(turn.conversationKey).toBeUndefined();
     expect(turn.compaction).toBeTrue();
@@ -1243,6 +1252,7 @@ test.each([false, true])("structured compact rebuilds canonical context when its
     return "Fallback checkpoint from canonical Codex context";
   };
   const compact = request(true);
+  compact.options.reasoning = "max";
   const events: AdapterEvent[] = [];
   if (experimentalBiggerContext) compact.context.messages.at(-1)!.content += "x".repeat(160_000);
   try {

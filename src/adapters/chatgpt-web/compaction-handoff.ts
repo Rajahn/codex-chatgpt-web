@@ -8,7 +8,7 @@ import { extractChatGptCompactionSourceRevision } from "./environment";
 import type { ChatGptBrowserWorker } from "./browser-worker";
 import { ChatGptCompactionHandoffAccepted } from "./adapter-error";
 import type { CompactionTransactionHandle } from "./compaction-transaction";
-import type { ChatGptWebCapabilities } from "./model";
+import { resolveChatGptWebModelMode, CHATGPT_WEB_MODEL_ID, type ChatGptWebCapabilities } from "./model";
 import {
   activeCompactionToolResultInstruction,
   structuredCompactionHandoffInstruction,
@@ -16,6 +16,17 @@ import {
 } from "./native-compaction-control";
 import type { BrokerToolResult, TurnBroker, TurnBrokerOwner } from "./turn-broker";
 import type { ChatGptTurnSession } from "./turn-execution";
+
+/** Keep native request identity intact; only the browser summary uses this explicit effort. */
+export function compactionGenerationRequest(
+  parsed: CodexParsedRequest,
+  effort: string | undefined,
+  capabilities: ChatGptWebCapabilities,
+): CodexParsedRequest {
+  if (!parsed._compactionRequest || effort === undefined || parsed.modelId !== CHATGPT_WEB_MODEL_ID) return parsed;
+  resolveChatGptWebModelMode(parsed.modelId, effort, capabilities);
+  return { ...parsed, options: { ...parsed.options, reasoning: effort } };
+}
 
 export const LATEST_USER_PROMPT_MARKER = "CODEX_LATEST_USER_PROMPT_JSON";
 

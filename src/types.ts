@@ -284,6 +284,8 @@ export interface CodexProviderConfig {
     lunaCheckpointStatePath?: string;
     /** Optional explicit safety ceiling. Browser turns have no absolute deadline by default. */
     turnTimeoutMs?: number;
+    /** Explicit automatic-compaction effort; normal turns retain their selected model. */
+    compactionReasoning?: "low" | "medium" | "high" | "xhigh" | "max";
     /**
      * Seconds of adapter silence before the Responses bridge cancels a turn as a hung upstream.
      * The adapter heartbeats every CHATGPT_WEB_ADAPTER_HEARTBEAT_MS for the whole of a turn, so a

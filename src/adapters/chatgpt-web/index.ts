@@ -38,6 +38,7 @@ import {
 import { ChatGptExternalTurnProgress } from "./turn-progress";
 import {
   canonicalizeCompactionHandoff,
+  compactionGenerationRequest,
   existingStructuredCompactionRun,
   MAX_COMPACTION_HANDOFF_TIMEOUT_MS,
   requestRetainedCompactionHandoff,
@@ -818,6 +819,9 @@ export function createChatGptWebAdapter(
         const turnCapabilities = parsed._compactionRequest && !manualRequest
           ? { ...configuredCapabilities, localToolsEnabled: false }
           : configuredCapabilities;
+        const summaryRequest = manualRequest ? parsed : compactionGenerationRequest(
+          parsed, provider.chatgptWeb?.compactionReasoning, turnCapabilities,
+        );
         const mode = manualRequest
           ? { localTools: true }
           : resolveChatGptWebModelMode(parsed.modelId, parsed.options.reasoning, turnCapabilities);
@@ -932,7 +936,7 @@ export function createChatGptWebAdapter(
                     // transport time cannot consume the model-generation window.
                     armHandoffDeadline();
                     const fallbackRuntime = startRuntime(
-                      parsed,
+                      summaryRequest,
                       manualRequest ? environment : undefined,
                       `${handoffTraceId}_fallback`,
                       turnCapabilities,
@@ -1001,9 +1005,11 @@ export function createChatGptWebAdapter(
                         operationSignal,
                       );
                       preserveFinalResponse = !settlement.compactionInstructionDelivered;
+                      // Source settlement must not consume the summary phase budget.
+                      armHandoffDeadline();
                       rawSummary = await requestRetainedCompactionHandoff(
                         worker,
-                        parsed,
+                        summaryRequest,
                         source,
                         structuredBroker!,
                         configuredCapabilities,
@@ -1018,9 +1024,11 @@ export function createChatGptWebAdapter(
                         await withAbort(source.physicalSettlement, operationSignal);
                         preserveFinalResponse = true;
                       }
+                      // Source settlement must not consume the summary phase budget.
+                      armHandoffDeadline();
                       rawSummary = await requestRetainedCompactionHandoff(
                         worker,
-                        parsed,
+                        summaryRequest,
                         source,
                         structuredBroker!,
                         configuredCapabilities,
@@ -1121,7 +1129,7 @@ export function createChatGptWebAdapter(
         const session = await chatGptTurnSessions.getOrCreateAfterOwnerRetirement(
           executionKey,
           ownerKey,
-          () => startRuntime(parsed, environment, traceId, turnCapabilities),
+          () => startRuntime(summaryRequest, environment, traceId, turnCapabilities),
           traceId,
           incoming.abortSignal,
           nativeTurnId,
